@@ -1,5 +1,3 @@
-%%writefile C:\Users\USER\Desktop\IDS_Project\ids_app.py
-
 import streamlit as st
 import joblib
 import pandas as pd
@@ -42,10 +40,8 @@ def run_prediction(input_df):
         scaler.transform(input_df),
         columns=features
     )
-
     pred = model.predict(scaled)[0]
     probs = model.predict_proba(scaled)[0]
-
     return pred, probs
 
 # ==============================
@@ -169,7 +165,7 @@ elif mode == "Upload CSV":
             st.error(f"⚠️ Error: {e}")
 
 # ==============================
-# LOGS SECTION
+# LOGS
 # ==============================
 st.subheader("📜 Detection Logs")
 
