@@ -3,18 +3,47 @@ import joblib
 import pandas as pd
 import numpy as np
 from datetime import datetime
+from docx import Document
+from docx.shared import Inches
+import matplotlib.pyplot as plt
+import os
 
 # ==============================
-# LOAD COMPONENTS
+# PAGE CONFIG + STYLE
+# ==============================
+st.set_page_config(page_title="IDS Dashboard", layout="wide")
+
+st.markdown("""
+    <style>
+    .stApp {
+        background: linear-gradient(135deg, #0f2027, #203a43, #2c5364);
+        color: white;
+    }
+    .css-1d391kg {background-color: #111;}
+    .stButton>button {
+        background-color: #00c6ff;
+        color: black;
+        font-weight: bold;
+        border-radius: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
+# ==============================
+# LOAD MODEL
 # ==============================
 model = joblib.load("ids_model.pkl")
 scaler = joblib.load("scaler.pkl")
 features = joblib.load("features.pkl")
 
-st.set_page_config(page_title="IDS Dashboard", layout="wide")
+st.title("🚀 Intrusion Detection System (IDS)")
+st.caption("Real-time Machine Learning-Based Threat Detection")
 
-st.title("🚀 Adaptive Intrusion Detection System (IDS)")
-st.caption("Machine Learning-based Network Intrusion Detection with Real-Time Analysis")
+# ==============================
+# SESSION STORAGE
+# ==============================
+if "results_df" not in st.session_state:
+    st.session_state.results_df = pd.DataFrame()
 
 # ==============================
 # SIDEBAR
@@ -24,154 +53,169 @@ mode = st.sidebar.selectbox(
     ["Manual Input", "Random Simulation", "Upload CSV"]
 )
 
-st.sidebar.info("Prediction threshold = 0.5")
+# ==============================
+# PREDICTION FUNCTION
+# ==============================
+def predict(df):
+    scaled = pd.DataFrame(scaler.transform(df), columns=features)
+    preds = model.predict(scaled)
+    probs = model.predict_proba(scaled)[:, 1]
+    return preds, probs
 
 # ==============================
-# SESSION LOGS
+# DISPLAY FUNCTION
 # ==============================
-if "logs" not in st.session_state:
-    st.session_state.logs = []
-
-# ==============================
-# FUNCTION: PREDICT
-# ==============================
-def run_prediction(input_df):
-    scaled = pd.DataFrame(
-        scaler.transform(input_df),
-        columns=features
-    )
-    pred = model.predict(scaled)[0]
-    probs = model.predict_proba(scaled)[0]
-    return pred, probs
-
-# ==============================
-# FUNCTION: DISPLAY RESULT
-# ==============================
-def display_result(pred, probs):
-    prob_benign = probs[0]
-    prob_attack = probs[1]
-
+def show_result(pred, prob):
     st.subheader("🔍 Prediction Result")
 
     col1, col2 = st.columns(2)
 
     with col1:
-        st.metric("Attack Probability", f"{prob_attack:.4f}")
-        st.progress(float(prob_attack))
+        st.metric("Attack Probability", f"{prob:.4f}")
+        st.progress(float(prob))
 
     with col2:
-        st.metric("Benign Probability", f"{prob_benign:.4f}")
-        st.progress(float(prob_benign))
+        st.metric("Benign Probability", f"{1-prob:.4f}")
+        st.progress(float(1-prob))
 
-    if prob_attack > 0.9:
-        st.error("🚨 Very High Confidence Attack")
-    elif prob_attack > 0.7:
-        st.warning("⚠️ Moderate Risk Detected")
-    elif prob_attack > 0.5:
-        st.info("Potential Suspicious Activity")
+    if prob > 0.9:
+        st.error("🚨 High Risk Attack")
+    elif prob > 0.7:
+        st.warning("⚠️ Medium Risk")
     else:
-        st.success("✅ Likely Benign Traffic")
+        st.success("✅ Benign")
 
 # ==============================
 # MANUAL INPUT
 # ==============================
 if mode == "Manual Input":
-    st.subheader("🧮 Manual Feature Input")
+
+    st.subheader("🧮 Enter Features")
 
     input_data = {}
     cols = st.columns(3)
 
-    for i, feature in enumerate(features):
+    for i, f in enumerate(features):
         with cols[i % 3]:
-            input_data[feature] = st.number_input(feature, value=10.0)
+            input_data[f] = st.number_input(f, value=10.0)
 
-    if st.button("Run Detection"):
+    if st.button("Detect"):
         df = pd.DataFrame([input_data])
-        pred, probs = run_prediction(df)
+        pred, prob = predict(df)
 
-        display_result(pred, probs)
+        show_result(pred[0], prob[0])
 
-        st.session_state.logs.append({
-            "Time": datetime.now(),
-            "Type": "Manual",
-            "Prediction": "Attack" if pred == 1 else "Benign",
-            "Attack_Prob": float(probs[1])
-        })
+        result = df.copy()
+        result["Prediction"] = ["Attack" if pred[0] == 1 else "Benign"]
+        result["Probability"] = prob
+
+        st.session_state.results_df = pd.concat(
+            [st.session_state.results_df, result],
+            ignore_index=True
+        )
 
 # ==============================
 # RANDOM SIMULATION
 # ==============================
 elif mode == "Random Simulation":
-    st.subheader("🎲 Simulated Network Traffic")
 
-    if st.button("Generate & Detect"):
-        random_data = np.random.normal(loc=50, scale=30, size=len(features))
-        df = pd.DataFrame([random_data], columns=features)
+    st.subheader("🎲 Simulated Traffic")
 
-        st.write("Generated Input", df)
+    if st.button("Generate"):
+        df = pd.DataFrame(
+            [np.random.normal(50, 20, len(features))],
+            columns=features
+        )
 
-        pred, probs = run_prediction(df)
+        pred, prob = predict(df)
 
-        display_result(pred, probs)
+        st.write(df)
+        show_result(pred[0], prob[0])
 
-        st.session_state.logs.append({
-            "Time": datetime.now(),
-            "Type": "Simulation",
-            "Prediction": "Attack" if pred == 1 else "Benign",
-            "Attack_Prob": float(probs[1])
-        })
+        df["Prediction"] = ["Attack" if pred[0] == 1 else "Benign"]
+        df["Probability"] = prob
+
+        st.session_state.results_df = pd.concat(
+            [st.session_state.results_df, df],
+            ignore_index=True
+        )
 
 # ==============================
 # CSV UPLOAD
 # ==============================
 elif mode == "Upload CSV":
-    st.subheader("📂 Batch Detection")
 
-    file = st.file_uploader("Upload CSV file", type=["csv"])
+    file = st.file_uploader("Upload CSV", type=["csv"])
 
-    if file is not None:
+    if file:
         df = pd.read_csv(file)
 
         try:
             df = df[features]
-
-            scaled = scaler.transform(df)
-
-            preds = model.predict(scaled)
-            probs = model.predict_proba(scaled)[:, 1]
+            preds, probs = predict(df)
 
             df["Prediction"] = ["Attack" if p == 1 else "Benign" for p in preds]
-            df["Attack_Probability"] = probs
+            df["Probability"] = probs
 
-            st.write("📊 Results Preview", df.head())
+            st.write(df.head())
 
-            attack_count = int((preds == 1).sum())
-            benign_count = int((preds == 0).sum())
-
-            st.subheader("📈 Summary")
-            st.write(f"Attacks: {attack_count}")
-            st.write(f"Benign: {benign_count}")
+            st.session_state.results_df = df
 
             st.bar_chart(df["Prediction"].value_counts())
 
-            st.session_state.logs.append({
-                "Time": datetime.now(),
-                "Type": "Batch",
-                "Prediction": f"{attack_count}A/{benign_count}B",
-                "Attack_Prob": float(probs.mean())
-            })
-
         except Exception as e:
-            st.error(f"⚠️ Error: {e}")
+            st.error(e)
 
 # ==============================
-# LOGS
+# RESULTS DISPLAY
 # ==============================
-st.subheader("📜 Detection Logs")
+st.subheader("📊 Results")
 
-if st.session_state.logs:
-    log_df = pd.DataFrame(st.session_state.logs)
-    st.dataframe(log_df)
-    st.bar_chart(log_df["Prediction"].value_counts())
-else:
-    st.info("No detections yet.")
+if not st.session_state.results_df.empty:
+    st.dataframe(st.session_state.results_df)
+
+# ==============================
+# EXPORT TO WORD
+# ==============================
+def export_to_word(df):
+    doc = Document()
+    doc.add_heading('IDS Detection Report', 0)
+
+    doc.add_paragraph(f"Generated: {datetime.now()}")
+
+    # Table
+    table = doc.add_table(rows=1, cols=len(df.columns))
+    for i, col in enumerate(df.columns):
+        table.rows[0].cells[i].text = col
+
+    for _, row in df.iterrows():
+        cells = table.add_row().cells
+        for i, val in enumerate(row):
+            cells[i].text = str(val)
+
+    # Chart
+    chart_path = "chart.png"
+    df["Prediction"].value_counts().plot(kind='bar')
+    plt.savefig(chart_path)
+    plt.close()
+
+    doc.add_picture(chart_path, width=Inches(5))
+
+    file_path = "IDS_Report.docx"
+    doc.save(file_path)
+
+    return file_path
+
+# ==============================
+# DOWNLOAD BUTTON
+# ==============================
+if not st.session_state.results_df.empty:
+    if st.button("📄 Export Report to Word"):
+        file_path = export_to_word(st.session_state.results_df)
+
+        with open(file_path, "rb") as f:
+            st.download_button(
+                "⬇️ Download Report",
+                f,
+                file_name="IDS_Report.docx"
+            )
